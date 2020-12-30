@@ -1,0 +1,7 @@
+<launch>
+  <!-- CozmoCamera -->
+  <!--include file="$(find cozmo_driver)/launch/cozmo_driver.launch">
+  </include-->
+  <node pkg="cozmo" type="cozmo_camera.py" name="cozmo_camera" output="screen">
+  </node>
+</launch>
