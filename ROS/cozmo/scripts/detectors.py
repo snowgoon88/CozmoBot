@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from opencv_node import IntParameter, ImageProcessor, default_img
+from opencv_node import IntParameter, ImageProcessor, get_default_img
 import cv2
 import numpy as np
 import math
@@ -10,8 +10,13 @@ import math
 # ************************************************************* ThresoldDetector
 # ******************************************************************************
 class ThresoldDetector(ImageProcessor):
+    """
+    img to gray
+    then thresold global, adaptive mean, adaptive gaussian
+    then find contours
+    """
     def __init__(self):
-        super().__init__( default_img )
+        super().__init__( get_default_img() )
 
         # Add parameters
         _param_thres = IntParameter( id='thres', title="Thres",
@@ -36,27 +41,40 @@ class ThresoldDetector(ImageProcessor):
                                       255, cv2.THRESH_BINARY )
         _,contours,_ = cv2.findContours(th1_img, cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
         #print( "1 ",len(contours))
-        th1_img = cv2.drawContours(img.copy(), contours, -1, (0,255,0), 2)
+        ct1_img = cv2.drawContours(img.copy(), contours, -1, (0,255,0), 1)
         th2_img = cv2.adaptiveThreshold( blur_img, 255,
                                      cv2.ADAPTIVE_THRESH_MEAN_C,
                                      cv2.THRESH_BINARY, 11, 2)
         _,contours,_ = cv2.findContours(th2_img, cv2.RETR_TREE,
                                                cv2.CHAIN_APPROX_SIMPLE)
         #print( "2 ",len(contours))
-        th2_img = cv2.drawContours(img.copy(), contours, -1, (0,255,0), 2)
+        ct2_img = cv2.drawContours(img.copy(), contours, -1, (0,255,0), 1)
         th3_img = cv2.adaptiveThreshold( blur_img, 255,
                                      cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                      cv2.THRESH_BINARY, 11, 2)
         _,contours,_ = cv2.findContours(th3_img, cv2.RETR_LIST,
                                                cv2.CHAIN_APPROX_SIMPLE)
         #print( "3 ",len(contours))
-        th3_img = cv2.drawContours(img.copy(), contours, -1, (0,255,0), 2)
+        ct3_img = cv2.drawContours(img.copy(), contours, -1, (0,255,0), 1)
+
+
+        # otsu global threshold
+        ret, th4_img = cv2.threshold(blur_img,
+                                     0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        _,contours,_ = cv2.findContours(th4_img, cv2.RETR_LIST,
+                                               cv2.CHAIN_APPROX_SIMPLE)
+        ct4_img = cv2.drawContours(img.copy(), contours, -1, (0,255,0), 1)
         #output image
-        res_img = np.zeros( (2 * h, 2 * w, 3), dtype="uint8")
+        res_img = np.zeros( (3 * h, 4 * w, 3), dtype="uint8")
         res_img[0:h,0:w] = img
-        res_img[0:h,w:2*w] = th1_img
-        res_img[h:2*h,0:w] = th2_img
-        res_img[h:2*h,w:2*w] = th3_img
+        res_img[h:2*h,0:w,0] = th1_img
+        res_img[h:2*h,w:2*w,0] = th2_img
+        res_img[h:2*h,2*w:3*w,0] = th3_img
+        res_img[h:2*h,3*w:4*w,0] = th4_img
+        res_img[2*h:3*h,0:w] = ct1_img
+        res_img[2*h:3*h,w:2*w] = ct2_img
+        res_img[2*h:3*h,2*w:3*w] = ct3_img        
+        res_img[2*h:3*h,3*w:4*w] = ct4_img        
         
         return res_img
 
@@ -65,7 +83,7 @@ class ThresoldDetector(ImageProcessor):
 # ******************************************************************************
 class LineDetector(ImageProcessor):
     def __init__(self):
-        super().__init__( default_img )
+        super().__init__( get_default_img() )
 
         # Add parameters
         _param_blur = IntParameter( id='blur', title='Blur',
@@ -144,5 +162,43 @@ class LineDetector(ImageProcessor):
         res_img[:,w:2*w] = line_img
 
         return res_img
+
+# ******************************************************************************
+# **************************************************************** VerticalLines
+# ******************************************************************************
+class VerticalLinesDetector(ImageProcessor):
+    def __init__(self):
+        super().__init__( get_default_img() )
+
+    def run(self, img):
+        h,w,d = img.shape
+
+        # gray
+        gray_img = cv2.cvtColor( img, cv2.COLOR_RGB2GRAY)
+        gray_img = np.uint8( gray_img )
+
+        # Need a binary inverted image
+        gray_img = cv2.bitwise_not(gray_img)
+        bw_img = cv2.adaptiveThreshold(gray_img,
+                                       255, cv2.ADAPTIVE_THRESH_MEAN_C, \
+                                       cv2.THRESH_BINARY, 15, -2)
+
+        vert_img = bw_img.copy()
+
+        # prepare kernel for vertical
+        vert_size = h // 10
+        vert_kern = cv2.getStructuringElement(cv2.MORPH_RECT, (1, vert_size))
+
+        # apply morphology operation
+        vert_img = cv2.erode( vert_img, vert_kern )
+        vert_img = cv2.dilate( vert_img, vert_kern )
+
+        res_img = np.zeros( (2 * h, 2 * w), dtype="uint8")
+        res_img[0:h,0:w] = gray_img
+        res_img[0:h,w:2*w] = bw_img
+        res_img[h:2*h,0:w] = vert_img
+
+        return res_img
+        
 
         

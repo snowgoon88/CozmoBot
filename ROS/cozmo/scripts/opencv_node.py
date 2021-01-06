@@ -20,8 +20,15 @@ def load_ressource_img( rel_pathname ):
     img = cv2.imread( fullpath, cv2.IMREAD_COLOR )
     if img is None:
         sys.exit( "Could not read "+fullpath )
-
-default_img = load_ressource_img( "no_image.png" )
+    return img
+    
+_default_img = None
+def get_default_img():
+    global _default_img
+    if _default_img is None:
+        print( "__OpenCVNode: loading default_img" )
+        _default_img = load_ressource_img( "no_image.png" )
+    return _default_img
 
 class IntParameter(object):
     def __init__(self, id, title, init_val, max_val, update_func=None):
