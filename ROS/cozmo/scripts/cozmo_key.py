@@ -1,31 +1,29 @@
-#!/bin/sh
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
-# Shell commands follow to lauchn using the python with ROS_PYTHON_VERSION
-# Next line is bilingual: it starts a comment in Python, and is a no-op in shell
-""":"
+""" Keyboard control for Cozmo
 
-# Find a suitable python interpreter (adapt for your specific needs)
-cmd=/usr/bin/python${ROS_PYTHON_VERSION}
-command -v > /dev/null $cmd && exec $cmd $0 "$@"
+Publish TrackCmd on /track_cmd
+Subscribes to /battery, /joints
 
-echo "OMG Python${ROS_PYTHON_VERSION} not found, exiting!!!!!11!!eleven" >2
+QZSD for movements, using TrackCmd
+X    for stop
 
-exit 2
-
-":"""
-# Previous line is bilingual: it ends a comment in Python, and is a no-op in shell
-# Shell commands end here
+"""
 
 import curses
 import math
 
 import rospy
-from animat.msg import WheelCmd
-from animat.msg import ConsumeCmd
-from std_msgs.msg import String
+from cozmo.msg import TrackCmd
+from sensor_msgs.msg import (BatteryState, JointState)
 
+# ******************************************************************************
+# ******************************************************************* TextWindow
+# ******************************************************************************
 class TextWindow():
-
+    """ mid level API to facilitate using curses
+    """
     _screen = None
     _window = None
     _num_lines = None
@@ -61,61 +59,65 @@ class TextWindow():
     def beep(self):
         curses.flash()
 
-
-class AnimatKeyTeleop():
+# ******************************************************************************
+# *************************************************************** CozmoKeyTeleop
+# ******************************************************************************
+class CozmoKeyTeleop():
+    # ----------------------------------------------------------------- __init__
     def __init__(self, interface):
         self._interface = interface
         # DEL self._pub_cmd = rospy.Publisher('key_vel', Twist)
+        # subcribers
+        self.battery_sub = rospy.Subscriber( 'battery', BatteryState,
+                                             self._battery_cb )
+        self.jointstate_sub = rospy.Subscriber( 'joints', JointState,
+                                                self._joints_cb )
         # publishers
-        self.wheel_cmd_pub = rospy.Publisher( '/animat/wheel_cmd', WheelCmd,
+        self.track_cmd_pub = rospy.Publisher( '/track_cmd', TrackCmd,
                                               queue_size=10 )
-        self.cons_cmd_pub = rospy.Publisher( '/animat/consume_cmd', ConsumeCmd,
-                                             queue_size=10 )
-        self.server_cmd_pub = rospy.Publisher( '/animat/server_cmd', String, queue_size=10)
         self._hz = rospy.get_param('~hz', 10)
         self._last_pressed = {}
 
         self.vel_cmd = False
-        self.consume_cmd = False
-        self.server_cmd = False
+
+        self.cozmo_battery_volt = 0.0
+        self.cozmo_head_angle = 0.0
+        self.cozmo_lift_heigh = 0.0
         
         #self._forward_rate = rospy.get_param('~forward_rate', 0.8)
 
         self._vel_rate = 0.1
         self._vel_left = 0
         self._vel_right = 0
-        self._consume = 'none'
-        self._server_msg = 'none'
 
     movement_bindings = {
         curses.KEY_UP:    ( 1,  1, '-'),
+        122: ( 1,  1, '-'), # z
+        90: ( 1,  1, '-'),  # Z
         curses.KEY_DOWN:  (-1,  -1, '-'),
+        115:     ( -1, -1, '-'),     # s
+        83:     ( -1, -1, '-'),      # S
         curses.KEY_LEFT:  ( -0.5,  0.5, '-'),
+        113: ( -0.5,  0.5, '-'),     # q
+        81:  ( -0.5,  0.5, '-'),     # Q
         curses.KEY_RIGHT: ( 0.5, -0.5, '-'),
-        101:     ( 0, 0, 'eat'),   # e
-        69:     ( 0, 0, 'eat'),    # E
-        100:     ( 0, 0, 'drink'), # d
-        68:     ( 0, 0, 'drink'),  # D
-        115:     ( 0, 0, '-'),     # s
-        83:     ( 0, 0, '-'),      # S
-        112:    ( 0, 0, 'play' ), #p
-        80:    ( 0, 0, 'play' ),  #P
-        111:    ( 0, 0, 'pause' ), #o
-        79:    ( 0, 0, 'pause' ),  #O
-        114:    ( 0, 0, 'reset' ),      #r
-        82:    ( 0, 0, 'reset' ),       #R
-        
+        100: ( 0.5, -0.5, '-'),      # d
+        68: ( 0.5, -0.5, '-'),       # D
+        120: ( 0.0, 0.0, '-'),      # x
+        88: ( 0.0, 0.0, '-'),       # X
     }
-    # s/S (115/83) : STOP
+    # x/X (120/88) : STOP
 
+    # ---------------------------------------------------------------------- run
     def run(self):
+        rospy.loginfo( "__CozmoKey running........" )
         rate = rospy.Rate(self._hz)
         self._running = True
         while self._running:
             while True:
                 keycode = self._interface.read_key()
-                ##print( "CURSE keycode=",keycode )
-                ##rospy.loginfo( "CURSE key={}".format( keycode ))
+                #print( "CURSE keycode=",keycode )
+                rospy.logdebug( "CURSE key={}".format( keycode ))
                 if keycode is None:
                     break
                 self._key_pressed(keycode)
@@ -123,6 +125,7 @@ class AnimatKeyTeleop():
             self._publish()
             rate.sleep()
 
+    # ----------------------------------------------------------------- clam_vel
     def clamp_vel(self):
         if self._vel_left > 1.0:
             self._vel_left = 1.0
@@ -131,97 +134,87 @@ class AnimatKeyTeleop():
         if self._vel_right > 1.0:
             self._vel_right = 1.0
         if self._vel_right < -1.0:
-            self._vel_right = -1.0            
-        
+            self._vel_right = -1.0
 
+    # ---------------------------------------------------------------- _callback
+    def _battery_cb(self, BatteryState_msg):
+        self.cozmo_battery_volt = BatteryState_msg.voltage
+    def _joints_cb(self, JointState_msg):
+        self.cozmo_head_angle = JointState_msg.position[0]
+        self.cozmo_lift_heigh = JointState_msg.position[1]
+
+    # ----------------------------------------------------------------- _set_cmd
     def _set_cmd(self):
         now = rospy.get_time()
         keys = []
         for a in self._last_pressed:
-            if now - self._last_pressed[a] < 0.2:
+            if now - self._last_pressed[a] < 0.05:
                 keys.append(a)
+
+        rospy.logdebug( "__[KC] _set_cmd key={}".format( keys ))
         leftw = 0.0
         rightw = 0.0
         for k in keys:
-            if k == 115 or k == 83: # STOP
+            if k == ord('x') or k == ord('X'): # STOP
                 leftw = 0
                 rightw = 0
                 self._vel_left = 0
                 self._vel_right = 0
                 self.vel_cmd = True
+                rospy.logdebug( "__[CK] STOP" )
                 break
-            elif k == 112 or k == 80: # p/P play
-                self._server_msg = "play"
-                self.play = True
-                self.server_cmd = True
-                break
-            elif k == 111 or k == 79: # o/O pause
-                self._server_msg = "pause"
-                self.play = True
-                self.server_cmd = True
-                break            
-            elif k == 114 or k == 82: # r/R Reset
-                self._server_msg = "reset"
-                self.server_cmd = True
-                break
-            cmd_l, cmd_r, cmd_consume = self.movement_bindings[k]
+
+            rospy.logdebug( "__[CK] movement_key" )
+            cmd_l, cmd_r, cmd_str = self.movement_bindings[k]
             leftw += cmd_l
             rightw += cmd_r
-            if cmd_consume != '-':
-                self._consume = cmd_consume
-                self.consume_cmd = True
 
         self._vel_left += leftw * self._vel_rate
         self._vel_right += rightw * self._vel_rate
         self.clamp_vel()
         self.vel_cmd = True
-            
+
+    # ------------------------------------------------------------- _key_pressed
     def _key_pressed(self, keycode):
-        if keycode == ord('q'):
+        rospy.logdebug( "__[KC] key_pressed kc={}".format( keycode ))
+        if keycode == 27: # ESC
+            rospy.logdebug( "__[CK] ESC => quitting" )
             self._running = False
             rospy.signal_shutdown('Bye')
         elif keycode in self.movement_bindings:
             self._last_pressed[keycode] = rospy.get_time()
 
+    # ----------------------------------------------------------------- _publish
     def _publish(self):
         self._interface.clear()
-        self._interface.write_line(2, "LEFT_vel: {:3.2f}\tRIGHT_vel: {:3.2f}".
+        self._interface.write_line(1, "COZMO battery: {:3.1f} V".format( self.cozmo_battery_volt ))
+        self._interface.write_line(2, "      head={}\tlift={}".format( self.cozmo_head_angle, self.cozmo_lift_heigh ))
+        self._interface.write_line(3, "LEFT_vel: {:3.2f}\tRIGHT_vel: {:3.2f}".
                                    format( self._vel_left, self._vel_right ))
-        self._interface.write_line(3, "last consume: {}".format( self._consume ))
+        # self._interface.write_line(3, "last consume: {}".format( self._consume ))
 
-        self._interface.write_line(1, "Server: p/P PLAY/PAUSE; r/R RESET" )
-        self._interface.write_line(5, "Use arrow keys to move, s/S:STOP, e/E:eat, d/D:drink,    q to exit." )
+        # self._interface.write_line(1, "Server: p/P PLAY/PAUSE; r/R RESET" )
+        self._interface.write_line(5, "Use Z/S Q/D to move, x/X:STOP,   ESC to exit." )
         self._interface.refresh()
 
         if self.vel_cmd:
-            wheel_cmd = WheelCmd()
-            wheel_cmd.header.stamp = rospy.Time.now()
-            wheel_cmd.vel_left = self._vel_left
-            wheel_cmd.vel_right = self._vel_right
-            self.wheel_cmd_pub.publish( wheel_cmd )
+            track_cmd = TrackCmd()
+            track_cmd.header.stamp = rospy.Time.now()
+            track_cmd.vel_left = self._vel_left
+            track_cmd.vel_right = self._vel_right
+            self.track_cmd_pub.publish( track_cmd )
             self.vel_cmd = False
 
-            
-        if self.consume_cmd:
-            consume_cmd = ConsumeCmd()
-            consume_cmd.header.stamp = rospy.Time.now()
-            consume_cmd.consume = self._consume
-            self.cons_cmd_pub.publish( consume_cmd )
-            self._consume = '-'
-            self.consume_cmd = False
 
-        if self.server_cmd:
-            self.server_cmd_pub.publish( self._server_msg )
-            self.server_cmd = False
-        
-
+# ************************************************************************* main
 def main(stdscr):
-    rospy.init_node('animat_key')
-    app = AnimatKeyTeleop(TextWindow(stdscr))
+    rospy.init_node('cozmo_key')
+    app = CozmoKeyTeleop(TextWindow(stdscr))
     app.run()
 
+# *********************************************************************** ifmain
 if __name__ == '__main__':
     try:
         curses.wrapper(main)
     except rospy.ROSInterruptException:
-        pass
+        print( "******* ROSInterruptException ***** in cozmo_key" )

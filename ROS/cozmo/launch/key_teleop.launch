@@ -1,0 +1,5 @@
+<!-- -*- mode: xml; -*- -->
+<launch>
+  <node pkg="cozmo" type="cozmo_key.py" name="cozmo_key" output="screen">
+  </node>
+</launch>

@@ -1,0 +1,19 @@
+*~
+
+# vi
+.*.sw[op]
+
+# emacs
+.\#*
+
+# archive
+*.zip
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual env, Sanbox
+Sandbox/
+venv/
