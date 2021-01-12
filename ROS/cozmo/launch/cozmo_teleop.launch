@@ -16,12 +16,12 @@
   <!--node pkg="cozmo" type="cozmo_driver.py" name="cozmo_driver" output="screen">
   </node-->
 
-  <node pkg="cozmo" type="cube_orb_detector.py" name="cube_orb_detector" output="screen">
+  <!--node pkg="cozmo" type="cube_orb_detector.py" name="cube_orb_detector" output="screen">
     <remap from="/in" to="/camera"/>
   </node>
   <node pkg="cozmo" type="cube_blob_detector.py" name="cube_blob_detector" output="screen">
     <remap from="/in" to="/camera"/>
-  </node>
+  </node-->
   
   <!-- Cozmo joystick node ************************************************** -->
   <group if="$(arg use_joystick)">

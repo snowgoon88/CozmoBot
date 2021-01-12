@@ -9,6 +9,7 @@ Subscribes to /battery, /joints
 QZSD for movements, using TrackCmd
 X    for stop
 
+HU for head movements
 """
 
 import curses
@@ -16,7 +17,40 @@ import math
 
 import rospy
 from cozmo.msg import TrackCmd
+from geometry_msgs.msg import Twist
 from sensor_msgs.msg import (BatteryState, JointState)
+
+JOY_STEP = 0.1
+HEAD_SPD = 3.14 * 0.1 # rad/s 
+
+# ******************************************************************************
+# ******************************************************************* VirtualJoy
+# ******************************************************************************
+class VirtualJoy(object):
+    """Position of the joystick, at maximum dist 1.0 from center"""
+
+    # ----------------------------------------------------------------- __init__
+    def __init__(self):
+        self.x = 0.0
+        self.y = 0.0
+        self.reset()
+        
+    # -------------------------------------------------------------------- reset
+    def reset(self):
+        self.x = 0.0
+        self.y = 0.0
+        
+    # --------------------------------------------------------------------  move
+    def move(self, delta_x, delta_y):
+        self.x += delta_x
+        self.y += delta_y
+        self.clamp()
+    # -------------------------------------------------------------------- clamp
+    def clamp(self):
+        norm = math.sqrt( self.x**2 + self.y**2 )
+        if norm > 1.0:
+            self.x /= norm
+            self.y /= norm
 
 # ******************************************************************************
 # ******************************************************************* TextWindow
@@ -75,6 +109,8 @@ class CozmoKeyTeleop():
         # publishers
         self.track_cmd_pub = rospy.Publisher( '/track_cmd', TrackCmd,
                                               queue_size=10 )
+        self.cmd_vel_pub = rospy.Publisher( '/cmd_vel', Twist,
+                                            queue_size=10 )
         self._hz = rospy.get_param('~hz', 10)
         self._last_pressed = {}
 
@@ -86,25 +122,33 @@ class CozmoKeyTeleop():
         
         #self._forward_rate = rospy.get_param('~forward_rate', 0.8)
 
-        self._vel_rate = 0.1
-        self._vel_left = 0
-        self._vel_right = 0
+        # self._vel_rate = 0.1
+        # self._vel_left = 0
+        # self._vel_right = 0
+        self.virtual_joy = VirtualJoy()
+        self._vel_head = 0
 
+    # mvt = (move_h, move_v, head, special)
     movement_bindings = {
-        curses.KEY_UP:    ( 1,  1, '-'),
-        122: ( 1,  1, '-'), # z
-        90: ( 1,  1, '-'),  # Z
-        curses.KEY_DOWN:  (-1,  -1, '-'),
-        115:     ( -1, -1, '-'),     # s
-        83:     ( -1, -1, '-'),      # S
-        curses.KEY_LEFT:  ( -0.5,  0.5, '-'),
-        113: ( -0.5,  0.5, '-'),     # q
-        81:  ( -0.5,  0.5, '-'),     # Q
-        curses.KEY_RIGHT: ( 0.5, -0.5, '-'),
-        100: ( 0.5, -0.5, '-'),      # d
-        68: ( 0.5, -0.5, '-'),       # D
-        120: ( 0.0, 0.0, '-'),      # x
-        88: ( 0.0, 0.0, '-'),       # X
+        curses.KEY_UP:    ( 0,  1, 0, '-'),
+        122: ( 0,  1, 0, '-'), # z
+        90: ( 0,  1, 0, '-'),  # Z
+        curses.KEY_DOWN:  (0,  -1, 0, '-'),
+        115:     ( 0, -1, 0, '-'),     # s
+        83:     ( 0, -1, 0, '-'),      # S
+        curses.KEY_LEFT:  ( -1,  0, 0, '-'),
+        113: ( -1,  0, 0, '-'),     # q
+        81:  ( -1,  0, 0, '-'),     # Q
+        curses.KEY_RIGHT: ( 1, 0, 0, '-'),
+        100: ( 1, 0, 0, '-'),      # d
+        68: ( 1, 0, 0, '-'),       # D
+        120: ( 0.0, 0.0, 0, '-'),      # x
+        88: ( 0.0, 0.0, 0, '-'),       # X
+        
+        117:  (0, 0, 1.0, '_'),        #u
+        85:   (0, 0, 1.0, '_'),        #U
+        104:  (0, 0, -1.0, '_'),        #h
+        72:   (0, 0, -1.0, '_'),        #H
     }
     # x/X (120/88) : STOP
 
@@ -113,17 +157,21 @@ class CozmoKeyTeleop():
         rospy.loginfo( "__CozmoKey running........" )
         rate = rospy.Rate(self._hz)
         self._running = True
-        while self._running:
-            while True:
-                keycode = self._interface.read_key()
-                #print( "CURSE keycode=",keycode )
-                rospy.logdebug( "CURSE key={}".format( keycode ))
-                if keycode is None:
-                    break
-                self._key_pressed(keycode)
-            self._set_cmd()
-            self._publish()
-            rate.sleep()
+        #while self._running:
+        try:
+            while not rospy.is_shutdown():
+                while True:
+                    keycode = self._interface.read_key()
+                    #print( "CURSE keycode=",keycode )
+                    rospy.logdebug( "CURSE key={}".format( keycode ))
+                    if keycode is None:
+                        break
+                    self._key_pressed(keycode)
+                self._set_cmd()
+                self._publish()
+                rate.sleep()
+        finally:
+            print( "This is the end...." )
 
     # ----------------------------------------------------------------- clam_vel
     def clamp_vel(self):
@@ -145,6 +193,34 @@ class CozmoKeyTeleop():
 
     # ----------------------------------------------------------------- _set_cmd
     def _set_cmd(self):
+        now = rospy.get_time()
+        keys = []
+        for a in self._last_pressed:
+            if now - self._last_pressed[a] < 0.05:
+                keys.append(a)
+
+        rospy.logdebug( "__[KC] _set_cmd key={}".format( keys ))
+        leftw = 0.0
+        rightw = 0.0
+        self._vel_head = 0.0
+        for k in keys:
+            if k == ord('x') or k == ord('X'): # STOP
+                self.virtual_joy.reset()
+                self._vel_head = 0.0
+                self._vel_left = 0
+                self._vel_right = 0
+                self.vel_cmd = True
+                rospy.logdebug( "__[CK] STOP" )
+                break
+
+            rospy.logdebug( "__[CK] movement_key" )
+            cmd_h, cmd_v, cmd_head, cmd_str = self.movement_bindings[k]
+            self.virtual_joy.move( cmd_h * JOY_STEP, cmd_v * JOY_STEP )
+            self._vel_head = cmd_head * HEAD_SPD
+
+        self.vel_cmd = True
+        
+    def _set_track_cmd(self):
         now = rospy.get_time()
         keys = []
         for a in self._last_pressed:
@@ -180,6 +256,8 @@ class CozmoKeyTeleop():
         if keycode == 27: # ESC
             rospy.logdebug( "__[CK] ESC => quitting" )
             self._running = False
+            self.virtual_joy.reset()
+            self._vel_head = 0
             rospy.signal_shutdown('Bye')
         elif keycode in self.movement_bindings:
             self._last_pressed[keycode] = rospy.get_time()
@@ -189,8 +267,12 @@ class CozmoKeyTeleop():
         self._interface.clear()
         self._interface.write_line(1, "COZMO battery: {:3.1f} V".format( self.cozmo_battery_volt ))
         self._interface.write_line(2, "      head={}\tlift={}".format( self.cozmo_head_angle, self.cozmo_lift_heigh ))
-        self._interface.write_line(3, "LEFT_vel: {:3.2f}\tRIGHT_vel: {:3.2f}".
-                                   format( self._vel_left, self._vel_right ))
+        self._interface.write_line(3, "JOY_H: {:3.2f}\tJOY_V: {:3.2f}\tHEAD: {:4.2f}".
+                                   format( self.virtual_joy.x,
+                                           self.virtual_joy.y,
+                                           self._vel_head ))
+        # self._interface.write_line(3, "LEFT_vel: {:3.2f}\tRIGHT_vel: {:3.2f}".
+        #                            format( self._vel_left, self._vel_right ))
         # self._interface.write_line(3, "last consume: {}".format( self._consume ))
 
         # self._interface.write_line(1, "Server: p/P PLAY/PAUSE; r/R RESET" )
@@ -198,12 +280,20 @@ class CozmoKeyTeleop():
         self._interface.refresh()
 
         if self.vel_cmd:
-            track_cmd = TrackCmd()
-            track_cmd.header.stamp = rospy.Time.now()
-            track_cmd.vel_left = self._vel_left
-            track_cmd.vel_right = self._vel_right
-            self.track_cmd_pub.publish( track_cmd )
+            cmd_vel = Twist()
+            cmd_vel.linear.x = self.virtual_joy.y
+            cmd_vel.angular.z = self.virtual_joy.x
+            cmd_vel.angular.y = 0.0
+            cmd_vel.angular.x = self._vel_head
+            self.cmd_vel_pub.publish( cmd_vel )
             self.vel_cmd = False
+            
+            # track_cmd = TrackCmd()
+            # track_cmd.header.stamp = rospy.Time.now()
+            # track_cmd.vel_left = self._vel_left
+            # track_cmd.vel_right = self._vel_right
+            # self.track_cmd_pub.publish( track_cmd )
+            # self.vel_cmd = False
 
 
 # ************************************************************************* main
