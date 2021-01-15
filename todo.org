@@ -1,6 +1,7 @@
-* _CURRENT_: ROS bugs
-* TODO [1/4] ROS
+* _CURRENT_: ROS eyes
+* TODO [3/4] ROS
 ** DONE key teleop : move head => use Twist
-** TODO BUG no /odom published
-** TODO BUG no /joints published
+** DONE BUG no /odom published
+** DONE BUG no /joints published
+** comprendre ROS log => pk pas de notif ?
 ** TODO no eyes/animations
