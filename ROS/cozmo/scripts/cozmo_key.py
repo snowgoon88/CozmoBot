@@ -4,7 +4,7 @@
 """ Keyboard control for Cozmo
 
 Publish TrackCmd on /track_cmd
-Subscribes to /battery, /joints
+Subscribes to /battery, /joints, /odom
 
 QZSD for movements, using TrackCmd
 X    for stop
@@ -14,14 +14,29 @@ HU for head movements
 
 import curses
 import math
+import numpy as np
 
 import rospy
 from cozmo.msg import TrackCmd
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import (BatteryState, JointState)
+from nav_msgs.msg import Odometry
 
 JOY_STEP = 0.1
 HEAD_SPD = 3.14 * 0.1 # rad/s 
+
+def quaternion_to_euler(q):
+    t0 = +2.0 * (q.w * q.x + q.y * q.z)
+    t1 = +1.0 - 2.0 * (q.x * q.x + q.y * q.y)
+    roll = np.arctan2(t0, t1)
+    t2 = +2.0 * (q.w * q.y - q.z * q.x)
+    t2 = +1.0 if t2 > +1.0 else t2
+    t2 = -1.0 if t2 < -1.0 else t2
+    pitch = np.arcsin(t2)
+    t3 = +2.0 * (q.w * q.z + q.x * q.y)
+    t4 = +1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+    yaw = np.arctan2(t3, t4)
+    return roll, pitch, yaw
 
 # ******************************************************************************
 # ******************************************************************* VirtualJoy
@@ -106,6 +121,8 @@ class CozmoKeyTeleop():
                                              self._battery_cb )
         self.jointstate_sub = rospy.Subscriber( 'joints', JointState,
                                                 self._joints_cb )
+        self.odom_sub = rospy.Subscriber( 'odom', Odometry,
+                                          self._odom_cb )
         # publishers
         self.track_cmd_pub = rospy.Publisher( '/track_cmd', TrackCmd,
                                               queue_size=10 )
@@ -119,6 +136,8 @@ class CozmoKeyTeleop():
         self.cozmo_battery_volt = 0.0
         self.cozmo_head_angle = 0.0
         self.cozmo_lift_heigh = 0.0
+        self.cozmo_position = None
+        self.cozmo_orientation = None
         
         #self._forward_rate = rospy.get_param('~forward_rate', 0.8)
 
@@ -136,12 +155,12 @@ class CozmoKeyTeleop():
         curses.KEY_DOWN:  (0,  -1, 0, '-'),
         115:     ( 0, -1, 0, '-'),     # s
         83:     ( 0, -1, 0, '-'),      # S
-        curses.KEY_LEFT:  ( -1,  0, 0, '-'),
-        113: ( -1,  0, 0, '-'),     # q
-        81:  ( -1,  0, 0, '-'),     # Q
-        curses.KEY_RIGHT: ( 1, 0, 0, '-'),
-        100: ( 1, 0, 0, '-'),      # d
-        68: ( 1, 0, 0, '-'),       # D
+        curses.KEY_LEFT:  ( 1,  0, 0, '-'),
+        113: ( 1,  0, 0, '-'),     # q
+        81:  ( 1,  0, 0, '-'),     # Q
+        curses.KEY_RIGHT: ( -1, 0, 0, '-'),
+        100: ( -1, 0, 0, '-'),      # d
+        68: ( -1, 0, 0, '-'),       # D
         120: ( 0.0, 0.0, 0, '-'),      # x
         88: ( 0.0, 0.0, 0, '-'),       # X
         
@@ -190,7 +209,9 @@ class CozmoKeyTeleop():
     def _joints_cb(self, JointState_msg):
         self.cozmo_head_angle = JointState_msg.position[0]
         self.cozmo_lift_heigh = JointState_msg.position[1]
-
+    def _odom_cb(self, Odom_msg):
+        self.cozmo_position = Odom_msg.pose.pose.position
+        self.cozmo_orientation = Odom_msg.pose.pose.orientation
     # ----------------------------------------------------------------- _set_cmd
     def _set_cmd(self):
         now = rospy.get_time()
@@ -267,7 +288,11 @@ class CozmoKeyTeleop():
         self._interface.clear()
         self._interface.write_line(1, "COZMO battery: {:3.1f} V".format( self.cozmo_battery_volt ))
         self._interface.write_line(2, "      head={}\tlift={}".format( self.cozmo_head_angle, self.cozmo_lift_heigh ))
-        self._interface.write_line(3, "JOY_H: {:3.2f}\tJOY_V: {:3.2f}\tHEAD: {:4.2f}".
+        if self.cozmo_position is not None:
+            self._interface.write_line(3, "      position=({:5.2f}, {:5.2f}, {:5.2f}) dist={:6.2f}".format( self.cozmo_position.x, self.cozmo_position.y, self.cozmo_position.z, math.sqrt( self.cozmo_position.x**2 + self.cozmo_position.y**2 + self.cozmo_position.z**2 )))
+            roll, pitch, yaw = quaternion_to_euler( self.cozmo_orientation )
+            self._interface.write_line(4, "      orient=({:5.2f}, {:5.2f}, {:5.2f})".format( roll, pitch, yaw ))
+        self._interface.write_line(5, "JOY_H: {:3.2f}\tJOY_V: {:3.2f}\tHEAD: {:4.2f}".
                                    format( self.virtual_joy.x,
                                            self.virtual_joy.y,
                                            self._vel_head ))
@@ -276,7 +301,7 @@ class CozmoKeyTeleop():
         # self._interface.write_line(3, "last consume: {}".format( self._consume ))
 
         # self._interface.write_line(1, "Server: p/P PLAY/PAUSE; r/R RESET" )
-        self._interface.write_line(5, "Use Z/S Q/D to move, x/X:STOP,   ESC to exit." )
+        self._interface.write_line(6, "Use Z/S Q/D to move, x/X:STOP,   ESC to exit." )
         self._interface.refresh()
 
         if self.vel_cmd:

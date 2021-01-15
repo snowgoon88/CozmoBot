@@ -1,0 +1,6 @@
+* _CURRENT_: ROS bugs
+* TODO [1/4] ROS
+** DONE key teleop : move head => use Twist
+** TODO BUG no /odom published
+** TODO BUG no /joints published
+** TODO no eyes/animations

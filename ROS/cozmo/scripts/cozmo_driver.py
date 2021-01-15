@@ -136,6 +136,7 @@ class CozmoDriver(object):
         #   gyro_z, battery_voltage, status,
         #   cliff_data_raw, backpack_touch_sensor_raw, curr_path_segment
 
+        # print( "__RobState" )
         now = rospy.Time.now()
         self._publish_battery( now )
         self._publish_imu( now )
@@ -189,38 +190,39 @@ class CozmoDriver(object):
         Publish joint states as JointStates.
 
         """
-        #print( "__PJS ")
+        # print( "__PJS ")
         # Publish only if there are subscribers
-        if self._joint_state_pub.get_subscription_count() == 0:
+        if self.joint_state_pub.get_num_connections() == 0:
             return
 
         # TODO better transform of the Lift
         self.js_msg.header.stamp = now
-        #print( "  head={}".format( self.cli.head_angle.radians ))
-        #print( "  lift={}".format( self.cli.lift_position ))
+        # print( "  head={}".format( self.cli.head_angle.radians ))
+        # print( "  lift={}".format( self.cli.lift_position ))
         self.js_msg.position     = [self.cli.head_angle.radians,
                                      self.cli.lift_position.height.mm * 0.001]
         self.joint_state_pub.publish(self.js_msg)
+        # print( "  ++ published ++" )
         
     def _publish_odom(self, now):
         """
         Publish imu data as Imu.
 
         """
-        #print( "__PO" )
+        # print( "__PO" )
         # Publish only if there are subscribers
-        # if self.odom_pub.get_num_connections() == 0:
-        #     return
+        if self.odom_pub.get_num_connections() == 0:
+            return
         
         self.odom_msg.header.stamp          = now
-        #print( " after time" )
+        # print( " after time" )
         self.odom_msg.pose.pose.position.x  = self.cli.pose.position.x * 0.001 # Units?
         self.odom_msg.pose.pose.position.y  = self.cli.pose.position.y * 0.001 # Units?
         self.odom_msg.pose.pose.position.z  = self.cli.pose.position.z * 0.001 # Units?
-        #print( "  after pose" )
+        # print( "  after pose" )
         # WARN: pose is handled differently on z and y in client
         self.odom_msg.pose.pose.orientation = euler_to_quaternion(0.0, self.cli.pose_pitch.radians, self.cli.pose.rotation.angle_z.radians )
-        #print( "  msg={}".format( self.odom_msg ))
+        # print( "  msg={}".format( self.odom_msg ))
         # TODO: covariance
         #self._odom_msg.pose.covariance       = np.diag([1e-2, 1e-2, 1e-2, 1e3, 1e3, 1e-1]).ravel()
         # self._odom_msg.twist.twist.linear.x  = self._lin_vel
@@ -229,6 +231,7 @@ class CozmoDriver(object):
 
         self.odom_pub.publish(self.odom_msg)
         #self._last_pose = deepcopy(self._odom_msg.pose.pose)
+        # print( "  ++ published" )
 
     # ------------------------------------------------------------- trackcmd_cbk
     def trackcmd_cbk(self, message):
