@@ -2,8 +2,12 @@
 <launch>
   <!-- CozmoDriver -->
   <!--include file="$(find cozmo_driver)/launch/cozmo_driver.launch">
-  </include-->
+      </include-->
+    <arg name="logout" default="False"
+       doc="[bool] log pycozmo on stdout ?"/>
+  
   <node pkg="cozmo" type="cozmo_driver.py" name="cozmo_driver" output="screen">
+    <param name="logout" value="$(arg logout)"/>
   </node>
 </launch>
 

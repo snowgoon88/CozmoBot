@@ -9,6 +9,8 @@
 # TODO : camera on/off
 # TODO : camera gray/color
 
+import sys
+import logging
 import time
 import pycozmo
 
@@ -78,6 +80,9 @@ class CozmoDriver(object):
        velocity: [0.0, 0.0]
        effort:   [0.0, 0.0]
 
+    Ros parameters:
+    - logout [bool]: if True, pycozmo logging is redirected to stdout
+
     Nothing is done until the run method is called.
 
     Watchdog : if too long since last time the robot moved
@@ -93,6 +98,17 @@ class CozmoDriver(object):
         self.speed_left = 0.0
         self.speed_right = 0.0
 
+
+        
+        # logout : log pycozmo to stdout also
+        self.logout = rospy.get_param( "~logout", "False" )
+        #print( "logout =", self.logout )
+        if self.logout:
+            rospy.loginfo( "Using stdout to log pycozmo" )
+            pycozmo_logger = logging.getLogger( "pycozmo" )
+            out_handler = logging.StreamHandler( sys.stdout )
+            pycozmo_logger.addHandler( out_handler )
+        
         # subscriber to be created
         self.trackcmd_sub = None
         self.cmdvel_sub = None
@@ -104,6 +120,21 @@ class CozmoDriver(object):
         self.watchdog_interval = 1.0
         self.last_moved = None
         self.last_time = None
+
+        # create messages
+        self._odom_frame = "/map"
+        self._base_frame = "/base_link"
+        self.odom_msg = Odometry(header = Header(frame_id = self._odom_frame),
+                                                child_frame_id = self._base_frame,
+                                                pose = PoseWithCovariance())
+        self.imu_msg = Imu( header=Header( frame_id = self._base_frame ))
+        self.battery_msg            = BatteryState()
+        self.battery_msg.present    = True
+        self.js_msg                 = JointState()
+        self.js_msg.header.frame_id = self._base_frame
+        self.js_msg.name            = ['head', 'lift']
+        self.js_msg.velocity        = [0.0, 0.0]
+        self.js_msg.effort          = [0.0, 0.0]
 
     # --------------------------------------------------------------- camera_cbk
     def camera_cbk(self, cli, image):
@@ -299,27 +330,6 @@ class CozmoDriver(object):
         self.last_time = rospy.get_rostime()
         self.last_moved = False
         
-        # create subscribers
-        self.trackcmd_sub = rospy.Subscriber( 'track_cmd', TrackCmd,
-                                              self.trackcmd_cbk )
-        self.cmdvel_sub = rospy.Subscriber('cmd_vel', Twist,
-                                           self.cmdvel_cbk )
-
-        # create messages
-        self._odom_frame = "/map"
-        self._base_frame = "/base_link"
-        self.odom_msg = Odometry(header = Header(frame_id = self._odom_frame),
-                                                child_frame_id = self._base_frame,
-                                                pose = PoseWithCovariance())
-        self.imu_msg = Imu( header=Header( frame_id = self._base_frame ))
-        self.battery_msg            = BatteryState()
-        self.battery_msg.present    = True
-        self.js_msg                 = JointState()
-        self.js_msg.header.frame_id = self._base_frame
-        self.js_msg.name            = ['head', 'lift']
-        self.js_msg.velocity        = [0.0, 0.0]
-        self.js_msg.effort          = [0.0, 0.0]
-        
         # create publisher
         self.camera_pub = rospy.Publisher("camera", Image, queue_size=1 )
         self.odom_pub = rospy.Publisher("odom", Odometry, queue_size=1 )
@@ -336,7 +346,13 @@ class CozmoDriver(object):
 
         self.cli.add_handler( pycozmo.event.EvtRobotStateUpdated,
                               self.robot_state_cb, one_shot=False)
-        
+
+        # create subscribers (after publishers)
+        self.trackcmd_sub = rospy.Subscriber( 'track_cmd', TrackCmd,
+                                              self.trackcmd_cbk )
+        self.cmdvel_sub = rospy.Subscriber('cmd_vel', Twist,
+                                           self.cmdvel_cbk )
+
         # main loop with watchdog
         try:
             while not rospy.is_shutdown():

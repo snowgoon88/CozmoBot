@@ -26,8 +26,10 @@ hama_mapping = {
               'switch_mode': 8 }
 }
 logitec_710 = {
-    'axis': { 'leftW':  1, 'rightW': 4, },
-    'btn':  { 'deadman': 4, 'eat': 1, 'drink': 2, 'none': 0}
+    'axis': { 'leftW':  1, 'rightW': 4,
+              'forward': 1, 'rotation': 0, 'lift_fork': 3, 'head': 4},
+    'btn':  { 'deadman': 4, 'eat': 1, 'drink': 2, 'none': 0,
+    'switch_mode': 6 }
 }
 switch_pro = {
     'axis': { 'leftW': 1, 'rightW': 3,
@@ -42,7 +44,12 @@ MAX_HEAD_SPD = 3.14 # rad/s
 
 # *************************************************************** CozmoJoyTeleop
 class CozmoJoyTeleop( object ):
-    """Joystick to Cozmo ROS commands."""
+    """Joystick to Cozmo ROS commands.
+
+    Rosparam:
+    - joymap [string]: which mapping (F710,Hama,Switch)
+
+    """
 
     def __init__(self):
         """Initialize joystick."""

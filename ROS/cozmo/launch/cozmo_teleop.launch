@@ -1,20 +1,23 @@
 <!-- -*- mode: xml; -*- -->
 <launch>
-  <arg name="use_keyboard" default="false"/> <!-- use the keyboard ? -->
-  <arg name="use_joystick" default="false"/> <!-- use the jostick ? -->
+  <arg name="use_keyboard" default="false"
+       doc="[bool] use keybard ?"/> 
+  <arg name="joyname" default="None"
+       doc="Which joystick to use: None|Manual|Hama|F710|Switch"/>
+  <arg name="logout" default="False"
+       doc="[bool] log pycozmo on stdout ?"/>
+
 
   <!-- Joystick device -->
-  <arg name="joystick_dev" default="/dev/input/by-id/usb-ACRUX_HAMA_X-Style_Pad-joystick" doc="joystick device"/>
-  <!--arg name="joystick_dev" default="/dev/input/by-id/usb-Nintendo_Co.__Ltd._Pro_Controller_000000000001-joystick" doc="joystick device"/-->  
-  <!-- Joystick Mapping: "Hama" | "F710" | "Switch" -->
-  <arg name="joystick_map" default="Hama" doc="joystick mapping"/>
+  <arg name="joystick_dev" default="/dev/input/js0" doc="joystick device in Manual mode"/>
+  <!-- Joystick Mapping: "Hama" | "F710" | "Switch" needed if 'Manual' mode-->
+  <arg name="joystick_map" default="F710" doc="joystick mapping in Manual mode"/>
 
 
-  <!-- CozmoDriver -->
-  <include file="$(find cozmo_driver)/launch/cozmo_driver.launch">
+  <!-- CozmoDriver, passing down arg logout -->
+  <include file="$(find cozmo)/launch/cozmo_driver.launch">
+    <arg name="logout" value="$(arg logout)"/>
   </include>
-  <!--node pkg="cozmo" type="cozmo_driver.py" name="cozmo_driver" output="screen">
-  </node-->
 
   <!--node pkg="cozmo" type="cube_orb_detector.py" name="cube_orb_detector" output="screen">
     <remap from="/in" to="/camera"/>
@@ -24,7 +27,40 @@
   </node-->
   
   <!-- Cozmo joystick node ************************************************** -->
-  <group if="$(arg use_joystick)">
+  <group if="$(eval arg('joyname') == 'F710')"><!-- F710 Joystick *********** -->
+    <node pkg="joy" type="joy_node" name="joy" output="screen">
+      <param name="dev" value="/dev/input/by-id/usb-Logitech_Wireless_Gamepad_F710_0EAF97D2-joystick"/>
+      <param name="autorepeat_rate" value="10"/><!-- 10Hz-->
+    </node>
+    <!-- Cozmo joystick node -->
+      <node pkg="cozmo" type="cozmo_joy.py" name="cozmo_joy" output="screen">
+        <param name="joymap" type="str" value="F710"/>
+    </node>
+  </group>
+  
+  <group if="$(eval arg('joyname') == 'Hama')"><!-- Hama Joystick *********** -->
+    <node pkg="joy" type="joy_node" name="joy" output="screen">
+      <param name="dev" value="/dev/input/by-id/usb-ACRUX_HAMA_X-Style_Pad-joystick"/>
+      <param name="autorepeat_rate" value="10"/><!-- 10Hz-->
+    </node>
+    <!-- Cozmo joystick node -->
+      <node pkg="cozmo" type="cozmo_joy.py" name="cozmo_joy" output="screen">
+      <param name="joymap" type="str" value="Hama"/>
+    </node>
+  </group>
+  
+  <group if="$(eval arg('joyname') == 'Switch')"><!-- Switch Joystick ******* -->
+    <node pkg="joy" type="joy_node" name="joy" output="screen">
+      <param name="dev" value="/dev/input/by-id/usb-Nintendo_Co.__Ltd._Pro_Controller_000000000001-joystick"/>
+      <param name="autorepeat_rate" value="10"/><!-- 10Hz-->
+    </node>
+    <!-- Cozmo joystick node -->
+      <node pkg="cozmo" type="cozmo_joy.py" name="cozmo_joy" output="screen">
+      <param name="joymap" type="str" value="Switch"/>
+    </node>
+  </group>
+  
+  <group if="$(eval arg('joyname') == 'Manual')"><!-- Manual Joystick ******* -->
     <node pkg="joy" type="joy_node" name="joy" output="screen">
       <param name="dev" value="$(arg joystick_dev)"/>
       <param name="autorepeat_rate" value="10"/><!-- 10Hz-->

@@ -1,7 +1,10 @@
-* _CURRENT_: ROS eyes
-* TODO [3/4] ROS
+* _CURRENT_: ROS log
+* TODO [5/7] ROS
 ** DONE key teleop : move head => use Twist
 ** DONE BUG no /odom published
 ** DONE BUG no /joints published
-** comprendre ROS log => pk pas de notif ?
+** DONE comprendre ROS log => pk pas de notif ?
+travail avec Francis => mettre option debug au debut, formatter
+** DONE choix plus facile du joystick
 ** TODO no eyes/animations
+** TODO couleur des cubes
